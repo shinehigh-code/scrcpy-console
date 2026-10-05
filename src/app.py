@@ -27,6 +27,19 @@ def resource(name):
     return Path(__file__).resolve().parent / name
 
 
+def _dbg(msg):
+    """清理调试日志：写到 exe 旁边 logs/app-exit.log。"""
+    try:
+        base = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) \
+            else Path(__file__).resolve().parent
+        base.joinpath("logs").mkdir(exist_ok=True)
+        import datetime
+        with open(base / "logs" / "app-exit.log", "a", encoding="utf-8") as f:
+            f.write("[%s] %s\n" % (datetime.datetime.now().strftime("%H:%M:%S"), msg))
+    except Exception:
+        pass
+
+
 def cleanup_children(backend):
     """退出前收干净由本程序启动的子进程。
 
@@ -34,25 +47,30 @@ def cleanup_children(backend):
     adb.exe 的映像文件；不杀掉它，PyInstaller 退出清理 _MEI 目录时会
     弹 "Failed to remove temporary directory" 警告。
     """
+    _dbg("cleanup 开始")
     # 1. 停掉正在运行的 scrcpy
     try:
-        backend.RUNNER.stop()
-    except Exception:
-        pass
+        ok, msg = backend.RUNNER.stop()
+        _dbg("scrcpy stop: %s" % msg)
+    except Exception as e:
+        _dbg("scrcpy stop 异常: %r" % e)
     # 2. 优雅关闭 adb server
     try:
         adb = Path(backend.ADB)
+        _dbg("adb 路径: %s 存在=%s" % (adb, adb.exists()))
         if adb.exists():
-            subprocess.run(
+            r = subprocess.run(
                 [str(adb), "kill-server"], timeout=8,
                 capture_output=True, startupinfo=_si_hidden(),
                 creationflags=0x08000000,
             )
-    except Exception:
-        pass
+            _dbg("kill-server rc=%s" % r.returncode)
+    except Exception as e:
+        _dbg("kill-server 异常: %r" % e)
     # 3. 兜底：强制结束仍在 _MEI 临时目录里运行的进程（只匹配本实例
     #    的临时目录，不影响系统里其他来源的 adb，比如模拟器自带的）
     mei = getattr(sys, "_MEIPASS", None)
+    _dbg("_MEIPASS=%s" % mei)
     if mei:
         safe = str(mei).replace("'", "''")
         ps = ("Get-CimInstance Win32_Process | "
@@ -60,13 +78,15 @@ def cleanup_children(backend):
               "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
               % safe)
         try:
-            subprocess.run(
+            r = subprocess.run(
                 ["powershell", "-NoProfile", "-Command", ps],
                 timeout=15, capture_output=True,
                 startupinfo=_si_hidden(), creationflags=0x08000000,
             )
-        except Exception:
-            pass
+            _dbg("兜底清扫 rc=%s" % r.returncode)
+        except Exception as e:
+            _dbg("兜底清扫异常: %r" % e)
+    _dbg("cleanup 结束")
 
 
 def cleanup_stale_mei():
