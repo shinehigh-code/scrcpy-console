@@ -1,4 +1,4 @@
-// 运行时产生的数据（含个人隐私：设备序列号、无线 IP、操作日志）
+# 运行时产生的数据（含个人隐私：设备序列号、无线 IP、操作日志）
 settings.json
 presets.json
 logs/
@@ -6,7 +6,7 @@ screenshots/
 videos/
 uploads/
 
-// 构建产物
+# 构建产物
 _build*/
 build/
 dist/
@@ -15,11 +15,11 @@ __pycache__/
 *.pyc
 *.pyo
 
-// 打包出的 exe 与压缩包（请放到 GitHub Release，不要进仓库）
+# 打包出的 exe 与压缩包（请放到 GitHub Release，不要进仓库）
 *.exe
 *.zip
 
-// 编辑器 / 系统
+# 编辑器 / 系统
 .vscode/
 .idea/
 .DS_Store
