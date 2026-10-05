@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>scrcpy 控制台</title>
+<style>
+/* 设计令牌：冷调中性色(zinc) + 单一产品蓝；圆角 6/8，极淡阴影，靠留白分层 */
+:root{
+  --bg:#F4F4F5; --surface:#FFFFFF; --surface-2:#F4F4F5;
+  --line:#E4E4E7; --line-2:#D4D4D8;
+  --text:#18181B; --text-2:#52525B; --text-3:#71717A;
+  --topbar:#18181B; --topbar-text:#F4F4F5; --topbar-text-2:#A1A1AA; --topbar-line:#27272A;
+  --accent:#2563EB; --accent-hover:#1D4ED8; --accent-soft:rgba(37,99,235,.08);
+  --ok:#16A34A; --err:#DC2626; --warn:#CA8A04;
+  --radius:6px; --radius-lg:8px;
+  --shadow:0 1px 2px rgba(24,24,27,.04); --shadow-2:0 2px 8px rgba(24,24,27,.08);
+  --font:"Inter","Segoe UI Variable Text","Segoe UI",-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+  --mono:"Cascadia Mono","JetBrains Mono",Consolas,"Courier New",monospace;
+}
+html[data-theme="dark"]{
+  --bg:#09090B; --surface:#18181B; --surface-2:rgba(255,255,255,.04);
+  --line:#27272A; --line-2:#52525B;
+  --text:#F4F4F5; --text-2:#A1A1AA; --text-3:#71717A;
+  --topbar:#09090B; --topbar-text:#F4F4F5; --topbar-text-2:#A1A1AA; --topbar-line:#27272A;
+  --accent:#3B82F6; --accent-soft:rgba(59,130,246,.14);
+}
+html[data-theme="dark"] .btn--primary:hover{background:var(--accent);filter:brightness(1.12)}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--text);
+  font:14px/1.55 var(--font);
+  -webkit-font-smoothing:antialiased;
+  display:flex; flex-direction:column; height:100vh; overflow:hidden;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+::-webkit-scrollbar{width:12px;height:12px}
+::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}
+
+/* 顶栏 */
+.topbar{
+  height:56px; flex:0 0 56px; background:var(--topbar); color:var(--topbar-text);
+  display:flex; align-items:center; gap:16px; padding:0 20px;
+  border-bottom:1px solid var(--topbar-line);
+}
+.brand{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;letter-spacing:-.01em}
+.brand svg{display:block}
+.brand .ver{color:var(--topbar-text-2);font-weight:400;font-size:12px}
+.topbar .spacer{flex:1}
+.state{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--topbar-text-2)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--line-2);flex:0 0 8px}
+.dot.on{background:var(--ok)}
+
+/* 按钮 */
+.btn{
+  height:36px; min-width:36px; padding:0 16px; border:1px solid transparent; border-radius:var(--radius);
+  background:transparent; cursor:pointer; font-size:13px; font-weight:500; display:inline-flex;
+  align-items:center; justify-content:center; gap:8px; white-space:nowrap;
+  transition:background .12s,border-color .12s,box-shadow .12s;
+}
+.btn svg{display:block;flex:0 0 auto}
+.btn--primary{background:var(--accent);color:#FFFFFF;border-color:var(--accent);box-shadow:var(--shadow)}
+.btn--primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+.btn--secondary{background:var(--surface);color:var(--text);border-color:var(--line-2);box-shadow:var(--shadow)}
+.btn--secondary:hover{background:var(--surface-2)}
+.btn--ghost{color:var(--text-2);border-color:transparent}
+.btn--ghost:hover{background:var(--surface-2);color:var(--text)}
+.topbar .btn--ghost{color:var(--topbar-text-2)}
+.topbar .btn--ghost:hover{background:var(--topbar-line);color:var(--topbar-text)}
+.topbar .btn--secondary{background:transparent;color:var(--topbar-text);border-color:var(--topbar-line);box-shadow:none}
+.topbar .btn--secondary:hover{background:var(--topbar-line)}
+.btn--lg{height:48px;padding:0 28px;font-size:15px;font-weight:600}
+.btn--block{width:100%}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.icobtn{width:36px;padding:0}
+
+/* 布局 */
+.shell{flex:1;display:flex;min-height:0}
+.sidebar{
+  flex:0 0 208px; background:var(--surface); border-right:1px solid var(--line);
+  display:flex; flex-direction:column; padding:16px 0; overflow:auto;
+}
+.sidebar .grp{font-size:12px;color:var(--text-3);padding:8px 20px 4px;font-weight:500}
+.nav{
+  display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;margin:0 8px 2px;
+  background:none;border:0;border-radius:var(--radius);cursor:pointer;width:calc(100% - 16px);
+  text-align:left;font-size:13px;font-weight:500;color:var(--text-2);
+}
+.nav:hover{background:var(--surface-2);color:var(--text)}
+.nav.is-active{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.nav .n{flex:1}
+.sidebar .foot{margin-top:auto;padding:16px 20px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center}
+
+main{flex:1;overflow:auto;padding:24px;min-width:0}
+.wrap{max-width:960px;margin:0 auto}
+.view{display:none}
+.view.is-active{display:block}
+
+/* 卡片 */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow);margin-bottom:16px}
+.card__hd{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.card__hd h2{margin:0;font-size:15px;font-weight:600;letter-spacing:-.01em}
+.card__hd .hint{font-size:13px;color:var(--text-3);font-weight:400}
+.card__hd .spacer{flex:1}
+.card__bd{padding:20px}
+.card__bd.tight{padding:8px 20px 20px}
+.sec{margin-bottom:20px}
+.sec:last-child{margin-bottom:0}
+.sec__t{font-size:13px;font-weight:600;color:var(--text);margin:0 0 12px}
+.sec__d{font-size:13px;color:var(--text-3);margin:0;line-height:1.6}
+
+/* 表单 */
+.field{display:flex;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid var(--surface-2)}
+.field:last-child{border-bottom:0}
+.field__lb{flex:0 0 176px;font-size:13px}
+.field__lb small{display:block;color:var(--text-3);font-size:12px;line-height:1.5;margin-top:2px}
+.field__ct{flex:1;display:flex;align-items:center;gap:8px;min-width:0}
+.field__ct > .in{flex:1;min-width:0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 32px}
+@media(max-width:860px){.grid2{grid-template-columns:1fr}.field__lb{flex-basis:140px}}
+
+.in,select.in,textarea.in{
+  height:36px;padding:0 12px;border:1px solid var(--line-2);border-radius:var(--radius);
+  background:var(--surface);color:var(--text);font-size:13px;width:100%;
+  transition:border-color .12s,box-shadow .12s;
+}
+textarea.in{height:auto;padding:12px;resize:vertical;line-height:1.6;font-family:var(--mono);font-size:12px}
+select.in{padding-right:8px;cursor:pointer}
+.in:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.14);outline:none}
+.in::placeholder{color:var(--text-3)}
+.in--num{max-width:120px;flex:0 0 120px}
+
+.cb{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;user-select:none}
+.cb input{
+  appearance:none;-webkit-appearance:none;margin:0;width:18px;height:18px;flex:0 0 18px;
+  border:1px solid var(--line-2);border-radius:4px;background:var(--surface);position:relative;cursor:pointer;
+  transition:background .12s,border-color .12s;
+}
+.cb input:checked{background:var(--accent);border-color:var(--accent)}
+.cb input:checked::after{
+  content:"";position:absolute;left:4px;top:2px;width:6px;height:10px;
+  border:solid #FFFFFF;border-width:0 2px 2px 0;transform:rotate(40deg);
+}
+html[data-theme="dark"] .cb input:checked::after{border-color:#09090B}
+
+.sw{display:flex;align-items:flex-start;gap:16px;padding:12px 0;border-bottom:1px solid var(--surface-2)}
+.sw:last-child{border-bottom:0}
+.sw__tx{flex:1}
+.sw__tx b{display:block;font-size:13px;font-weight:500}
+.sw__tx small{color:var(--text-3);font-size:12px;line-height:1.5}
+.sw__ct{flex:0 0 auto}
+
+/* 模式卡 */
+.modes{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+@media(max-width:820px){.modes{grid-template-columns:repeat(2,1fr)}}
+.mode{
+  border:1px solid var(--line-2);border-radius:var(--radius-lg);background:var(--surface);
+  padding:16px;cursor:pointer;text-align:left;min-height:96px;display:flex;flex-direction:column;gap:4px;
+  box-shadow:var(--shadow);transition:border-color .12s,background .12s;
+}
+.mode:hover{background:var(--surface-2)}
+.mode.is-active{border-color:var(--accent);background:var(--accent-soft)}
+.mode b{font-size:14px;font-weight:600}
+.mode span{font-size:12px;color:var(--text-3);line-height:1.5}
+
+/* 设备列表 */
+.devlist{display:flex;flex-direction:column;gap:8px}
+.dev{
+  display:flex;align-items:center;gap:12px;padding:12px 16px;border:1px solid var(--line);
+  border-radius:var(--radius-lg);cursor:pointer;background:var(--surface);box-shadow:var(--shadow);
+}
+.dev:hover{background:var(--surface-2)}
+.dev.is-active{border-color:var(--accent);background:var(--accent-soft)}
+.dev__k{font-family:var(--mono);font-size:12px}
+.dev__m{font-size:13px;color:var(--text-2)}
+.dev__s{font-size:12px;color:var(--ok);margin-left:auto}
+.empty{
+  border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:var(--radius-lg);
+  padding:16px 20px;background:var(--surface);font-size:13px;
+}
+.empty ol{margin:8px 0 0;padding-left:20px;color:var(--text-2);font-size:13px;line-height:1.8}
+
+/* 工具按钮 */
+.keys{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+@media(max-width:820px){.keys{grid-template-columns:repeat(3,1fr)}}
+.keys .btn{height:44px;border:1px solid var(--line-2);font-size:13px;box-shadow:var(--shadow)}
+.keys .btn:hover{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row .in{flex:1;min-width:160px}
+.chips{display:flex;gap:20px;flex-wrap:wrap}
+
+.drop{
+  border:1px dashed var(--line-2);border-radius:var(--radius-lg);padding:24px;text-align:center;
+  color:var(--text-3);font-size:13px;background:var(--surface-2);cursor:pointer;
+}
+.drop:hover{border-color:var(--accent);color:var(--accent)}
+.drop.is-over{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+
+/* 代码 / 日志 */
+pre.out{
+  margin:0;padding:12px 16px;background:var(--surface-2);color:var(--text);border:1px solid var(--line);
+  border-radius:var(--radius-lg);font-family:var(--mono);font-size:12px;line-height:1.7;
+  overflow:auto;max-height:340px;white-space:pre-wrap;word-break:break-all;
+}
+pre.out:empty::after{content:"（无输出）";color:var(--text-3)}
+
+table.tb{width:100%;border-collapse:collapse;font-size:13px}
+table.tb th,table.tb td{padding:12px;text-align:left;border-bottom:1px solid var(--line)}
+table.tb tr:last-child th,table.tb tr:last-child td{border-bottom:0}
+table.tb th{font-family:var(--mono);font-weight:500;color:var(--text);white-space:nowrap;width:120px}
+table.tb td{color:var(--text-2)}
+
+/* 命令条 */
+.cmdbar{flex:0 0 auto;border-top:1px solid var(--line);background:var(--surface)}
+.cmdbar__hd{display:flex;align-items:center;gap:12px;padding:8px 20px;cursor:pointer;height:44px}
+.cmdbar__hd .t{font-size:13px;font-weight:600;flex:0 0 auto}
+.cmdbar__hd code{
+  flex:1;font-family:var(--mono);font-size:12px;color:var(--text-2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.cmdbar__bd{display:none;padding:0 20px 12px}
+.cmdbar.is-open .cmdbar__bd{display:block}
+.chev{transition:transform .12s}
+.cmdbar.is-open .chev{transform:rotate(180deg)}
+
+/* toast */
+#toasts{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:99;display:flex;flex-direction:column;gap:8px;align-items:center}
+.toast{background:var(--text);color:var(--bg);font-size:13px;padding:12px 16px;border-radius:var(--radius);box-shadow:var(--shadow-2);max-width:80vw}
+.toast.ok{background:var(--ok);color:#FFFFFF}
+.toast.err{background:var(--err);color:#FFFFFF}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+      <rect x="4.5" y="1.5" width="7" height="13" rx="1"/><path d="M7 3h2"/>
+    </svg>
+    scrcpy 控制台 <span class="ver" id="verTag"></span>
+  </div>
+  <div class="state"><span class="dot" id="runDot"></span><span id="runTxt">未运行</span></div>
+  <div class="spacer"></div>
+  <select class="in" id="presetSel" style="width:132px" title="预设"></select>
+  <button class="btn btn--ghost icobtn" id="btnPresetSave" title="保存当前设置为预设">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h8l2 2v10H3z"/><path d="M5 2v4h5V2"/><path d="M5 10h6"/></svg>
+  </button>
+  <button class="btn btn--secondary" id="btnStop">停止</button>
+  <button class="btn btn--primary" id="btnStart">启动投屏</button>
+</header>
+
+<div class="shell">
+  <nav class="sidebar">
+    <div class="grp">操作</div>
+    <button class="nav is-active" data-view="start"><span class="n">快速开始</span></button>
+    <button class="nav" data-view="video"><span class="n">画面与声音</span></button>
+    <button class="nav" data-view="control"><span class="n">控制与录制</span></button>
+    <button class="nav" data-view="tools"><span class="n">设备工具</span></button>
+    <button class="nav" data-view="log"><span class="n">日志</span></button>
+    <div class="foot">
+      <button class="btn btn--ghost" id="btnTheme" style="flex:1;justify-content:flex-start">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3.2"/><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1"/></svg>
+        <span id="themeTxt">深色</span>
+      </button>
+    </div>
+  </nav>
+
+  <main>
+  <div class="wrap">
+
+    <!-- ==================== 快速开始 ==================== -->
+    <section class="view is-active" id="view-start">
+      <div class="card">
+        <div class="card__hd">
+          <h2>1 · 选择设备</h2>
+          <span class="hint">手机需开启 USB 调试</span>
+          <span class="spacer"></span>
+          <button class="btn btn--secondary" id="btnRefresh">刷新</button>
+        </div>
+        <div class="card__bd">
+          <div class="devlist" id="devList"></div>
+          <div id="devEmpty" class="empty" hidden>
+            未检测到设备
+            <ol>
+              <li>手机「设置 → 关于手机」连点「版本号」7 次，打开开发者选项</li>
+              <li>开发者选项里开启「USB 调试」，用<b>数据线</b>（非纯充电线）连接电脑</li>
+              <li>手机上点「允许 USB 调试」，勾选一律允许</li>
+              <li>回到这里点「刷新」；仍无效可点下方「重启 adb 服务」</li>
+            </ol>
+          </div>
+          <div class="sec" style="margin-top:16px">
+            <div class="sec__t">无线配对（免插线，需 Android 11 及以上）</div>
+            <div class="row">
+              <input class="in" id="pairAddr" placeholder="配对地址 192.168.1.20:42153" style="max-width:224px">
+              <input class="in" id="pairCode" placeholder="6 位配对码" style="max-width:140px">
+              <button class="btn btn--primary" id="btnPair">配对</button>
+            </div>
+            <p class="sec__d" style="margin:8px 0 0">
+              手机端：开发者选项 → 无线调试 → 开启 → 点「使用配对码配对」，把弹出的 <b>IP:端口</b> 和 <b>6 位码</b> 填进上面 → 点配对。
+              配对完退回无线调试页，抄下顶部的「IP 地址和端口」填进下面一行 → 点连接。
+            </p>
+          </div>
+          <div class="sec" style="margin-top:16px;margin-bottom:0">
+            <div class="sec__t">连接地址（Android 10 及以下需先插一次线）</div>
+            <div class="row">
+              <input class="in" id="tcpipAddr" data-key="tcpipAddr" placeholder="192.168.1.20:5555" style="max-width:224px">
+              <button class="btn btn--secondary" id="btnConnect">连接</button>
+              <button class="btn btn--secondary" data-adb="tcpip" data-param="5555">开启无线 5555</button>
+              <button class="btn btn--secondary" data-adb="ip">读取设备 IP</button>
+              <button class="btn btn--secondary" data-adb="restart-adb">重启 adb 服务</button>
+            </div>
+            <p class="sec__d" style="margin:8px 0 0">
+              Android 10 及以下没有无线调试，只能：接线 → 开启无线 5555 → 读取设备 IP → 连接 → 拔线。地址会随设置保存，之后开机即可直接无线启动。<br>
+              已在上方选中设备时，启动以选中设备为准，这里的地址不生效；要用无线就别选设备（或选列表里的 <b>IP:端口</b> 那一项）。
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__hd"><h2>2 · 选择模式</h2><span class="hint">决定画质与操作方式</span></div>
+        <div class="card__bd">
+          <div class="modes" id="modeBox">
+            <button class="mode is-active" data-mode="std"><b>标准</b><span>设备原始分辨率<br>默认码率与帧率</span></button>
+            <button class="mode" data-mode="smooth"><b>流畅</b><span>1024 · 2M · 30fps<br>缓冲 50ms，无线更稳</span></button>
+            <button class="mode" data-mode="hq"><b>高清</b><span>1920 · 8M · 60fps<br>画面优先，占用带宽高</span></button>
+            <button class="mode" data-mode="game"><b>游戏</b><span>UHID 键鼠 · 60fps<br>低延迟，支持手柄映射</span></button>
+          </div>
+          <div class="sec" style="margin-top:16px">
+            <div class="sec__t">常用选项</div>
+            <div class="sw">
+              <div class="sw__tx"><b>显示触摸点</b><small>演示或录教程时让手指位置可见</small></div>
+              <div class="sw__ct"><label class="cb"><input type="checkbox" data-key="showTouches"> 启用</label></div>
+            </div>
+            <div class="sw">
+              <div class="sw__tx"><b>保持手机常亮</b><small>投屏期间不自动锁屏</small></div>
+              <div class="sw__ct"><label class="cb"><input type="checkbox" data-key="stayAwake"> 启用</label></div>
+            </div>
+            <div class="sw">
+              <div class="sw__tx"><b>窗口置顶</b><small>投屏窗口不会被其他窗口盖住</small></div>
+              <div class="sw__ct"><label class="cb"><input type="checkbox" data-key="alwaysOnTop"> 启用</label></div>
+            </div>
+            <div class="sw">
+              <div class="sw__tx"><b>转发声音</b><small>需 Android 11 及以上</small></div>
+              <div class="sw__ct"><label class="cb"><input type="checkbox" data-key="audio"> 启用</label></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__hd"><h2>3 · 启动</h2><span class="hint">停止：关掉投屏窗口或点顶栏「停止」</span></div>
+        <div class="card__bd">
+          <button class="btn btn--primary btn--lg btn--block" id="btnStart2">启动投屏</button>
+          <p class="sec__d" style="margin:12px 0 0">
+            更细的画质、窗口设置在「画面与声音」；键鼠与录屏在「控制与录制」；截图、装 APK、发文本在「设备工具」。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 画面与声音 ==================== -->
+    <section class="view" id="view-video">
+      <div class="card">
+        <div class="card__hd"><h2>画质</h2><span class="hint">留空即用 scrcpy 默认值</span></div>
+        <div class="card__bd tight">
+          <div class="field"><label class="field__lb">最大尺寸<small>长边像素上限</small></label>
+            <div class="field__ct"><input class="in in--num" data-key="maxSize" placeholder="如 1280"></div></div>
+          <div class="field"><label class="field__lb">视频码率<small>2M / 4M / 8M</small></label>
+            <div class="field__ct"><input class="in in--num" data-key="videoBitRate" placeholder="如 4M"></div></div>
+          <div class="field"><label class="field__lb">帧率上限</label>
+            <div class="field__ct"><input class="in in--num" data-key="maxFps" placeholder="如 60"></div></div>
+          <div class="field"><label class="field__lb">视频编码器<small>默认由设备决定</small></label>
+            <div class="field__ct">
+              <select class="in" data-key="videoCodec">
+                <option value="default">自动</option><option value="h264">h264</option>
+                <option value="h265">h265</option><option value="av1">av1</option>
+              </select>
+              <button class="btn btn--secondary" data-list="encoders">查询可用</button>
+            </div></div>
+          <div class="field"><label class="field__lb">画面缓冲<small>毫秒，越大越不易卡</small></label>
+            <div class="field__ct"><input class="in in--num" data-key="videoBuffer" placeholder="如 50"></div></div>
+          <div class="field"><label class="field__lb">裁剪区域<small>格式 宽:高:x:y</small></label>
+            <div class="field__ct"><input class="in" data-key="crop" placeholder="如 1080:1920:0:0"></div></div>
+          <div class="field"><label class="field__lb">采集方向</label>
+            <div class="field__ct"><select class="in" data-key="captureOrientation">
+              <option value="0">不锁定</option><option value="90">90°</option>
+              <option value="180">180°</option><option value="270">270°</option>
+            </select></div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__hd"><h2>窗口</h2></div>
+        <div class="card__bd tight">
+          <div class="grid2">
+            <div class="field"><label class="field__lb">窗口宽</label><div class="field__ct"><input class="in in--num" data-key="windowWidth" placeholder="如 480"></div></div>
+            <div class="field"><label class="field__lb">窗口高</label><div class="field__ct"><input class="in in--num" data-key="windowHeight" placeholder="留空自适应"></div></div>
+            <div class="field"><label class="field__lb">窗口 X 坐标</label><div class="field__ct"><input class="in in--num" data-key="windowX"></div></div>
+            <div class="field"><label class="field__lb">窗口 Y 坐标</label><div class="field__ct"><input class="in in--num" data-key="windowY"></div></div>
+          </div>
+          <div class="field"><label class="field__lb">画面适配</label>
+            <div class="field__ct"><select class="in" data-key="renderFit">
+              <option value="default">默认</option><option value="contain">完整显示</option>
+              <option value="cover">铺满裁剪</option><option value="stretch">拉伸</option>
+            </select></div></div>
+          <div class="field"><label class="field__lb">渲染驱动<small>黑屏或花屏时切换</small></label>
+            <div class="field__ct"><select class="in" data-key="renderDriver">
+              <option value="default">自动</option><option value="direct3d">direct3d</option>
+              <option value="opengl">opengl</option><option value="software">software</option>
+            </select></div></div>
+          <div class="field"><label class="field__lb">窗口标题</label><div class="field__ct"><input class="in" data-key="windowTitle"></div></div>
+          <div class="chips" style="padding:8px 0">
+            <label class="cb"><input type="checkbox" data-key="alwaysOnTop"> 置顶</label>
+            <label class="cb"><input type="checkbox" data-key="borderless"> 无边框</label>
+            <label class="cb"><input type="checkbox" data-key="fullscreen"> 全屏启动</label>
+            <label class="cb"><input type="checkbox" data-key="disableScreensaver"> 禁用屏保</label>
+            <label class="cb"><input type="checkbox" data-key="noVideo"> 只传声音</label>
+            <label class="cb"><input type="checkbox" data-key="printFps"> 显示帧率</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__hd"><h2>声音</h2><span class="hint">Android 11 及以上支持音频转发</span></div>
+        <div class="card__bd tight">
+          <div class="field"><label class="field__lb">音频源</label>
+            <div class="field__ct"><select class="in" data-key="audioSource">
+              <option value="output">设备输出（默认）</option><option value="playback">媒体播放</option>
+              <option value="mic">麦克风</option><option value="mic-unprocessed">麦克风（未处理）</option>
+              <option value="mic-voice-recognition">麦克风（语音识别）</option>
+              <option value="mic-voice-communication">麦克风（通话）</option>
+              <option value="voice-call">通话双向</option><option value="voice-call-uplink">通话上行</option>
+              <option value="voice-call-downlink">通话下行</option><option value="voice-performance">演出采集</option>
+            </select></div></div>
+          <div class="grid2">
+            <div class="field"><label class="field__lb">音频码率</label><div class="field__ct"><input class="in in--num" data-key="audioBitRate" placeholder="128K"></div></div>
+            <div class="field"><label class="field__lb">音频缓冲 ms</label><div class="field__ct"><input class="in in--num" data-key="audioBuffer" placeholder="50"></div></div>
+          </div>
+          <div class="chips" style="padding:8px 0">
+            <label class="cb"><input type="checkbox" data-key="audio"> 转发声音</label>
+            <label class="cb"><input type="checkbox" data-key="audioPlayback"> 电脑播放声音</label>
+            <label class="cb"><input type="checkbox" data-key="audioDup"> 手机同时播放</label>
+            <label class="cb"><input type="checkbox" data-key="requireAudio"> 无音频则报错退出</label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 控制与录制 ==================== -->
+    <section class="view" id="view-control">
+      <div class="card">
+        <div class="card__hd"><h2>键鼠控制</h2><span class="hint">默认模式兼容性最好，UHID 延迟最低</span></div>
+        <div class="card__bd tight">
+          <div class="field"><label class="field__lb">鼠标模式<small>游戏建议 UHID</small></label>
+            <div class="field__ct"><select class="in" data-key="mouseMode">
+              <option value="default">默认（注入）</option><option value="uhid">UHID 物理鼠标</option>
+              <option value="aoa">AOA 协议</option><option value="disabled">禁用</option>
+            </select></div></div>
+          <div class="field"><label class="field__lb">键盘模式<small>游戏建议 UHID</small></label>
+            <div class="field__ct"><select class="in" data-key="keyboardMode">
+              <option value="default">默认（注入）</option><option value="uhid">UHID 物理键盘</option>
+              <option value="aoa">AOA 协议</option><option value="disabled">禁用</option>
+            </select></div></div>
+          <div class="field"><label class="field__lb">手柄模式</label>
+            <div class="field__ct"><select class="in" data-key="gamepadMode">
+              <option value="default">默认</option><option value="uhid">UHID</option>
+              <option value="disabled">禁用</option>
+            </select></div></div>
+          <div class="field"><label class="field__lb">快捷键修饰键</label>
+            <div class="field__ct"><select class="in" data-key="shortcutMod">
+              <option value="default">左 Alt / 左 Win</option><option value="lctrl">左 Ctrl</option>
+              <option value="lalt">左 Alt</option><option value="lsuper">左 Win</option>
+              <option value="rctrl">右 Ctrl</option><option value="ralt">右 Alt</option>
+            </select></div></div>
+          <div class="chips" style="padding:8px 0">
+            <label class="cb"><input type="checkbox" data-key="control"> 允许控制（取消即只读）</label>
+            <label class="cb"><input type="checkbox" data-key="clipboardSync"> 剪贴板双向同步</label>
+            <label class="cb"><input type="checkbox" data-key="showTouches"> 显示触摸点</label>
+            <label class="cb"><input type="checkbox" data-key="stayAwake"> 保持常亮</label>
+            <label class="cb"><input type="checkbox" data-key="turnScreenOff"> 启动即息屏</label>
+            <label class="cb"><input type="checkbox" data-key="noMouseHover"> 关闭鼠标悬停</label>
+            <label class="cb"><input type="checkbox" data-key="otg"> OTG 模式</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__hd"><h2>投屏窗口内快捷键</h2><span class="hint">MOD = 左 Alt 或 左 Win</span></div>
+        <div class="card__bd">
+          <table class="tb">
+            <tr><th>MOD+F</th><td>切换全屏</td><th>MOD+H / 中键</th><td>回到主屏</td></tr>
+            <tr><th>MOD+B / 右键</th><td>返回</td><th>MOD+S</th><td>最近任务</td></tr>
+            <tr><th>MOD+O</th><td>关屏但继续投</td><th>MOD+R</th><td>旋转画面</td></tr>
+            <tr><th>MOD+N</th><td>展开通知栏</td><th>MOD+G</th><td>1:1 像素</td></tr>
+            <tr><th>MOD+V</th><td>粘贴电脑剪贴板</td><th>MOD+I</th><td>显示帧率</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__hd"><h2>录屏</h2><span class="hint">mkv 中断也能保住文件，mp4 兼容性好</span></div>
+        <div class="card__bd tight">
+          <div class="sw">
+            <div class="sw__tx"><b>启动时开始录制</b><small>文件保存在控制台目录下的 videos 文件夹</small></div>
+            <div class="sw__ct"><label class="cb"><input type="checkbox" data-key="record"> 启用</label></div>
+          </div>
+          <div class="field"><label class="field__lb">保存路径</label>
+            <div class="field__ct">
+              <input class="in" data-key="recordFile" placeholder="留空自动生成时间戳文件名">
+              <button class="btn btn--secondary" id="btnGenRec">生成</button>
+              <button class="btn btn--secondary" id="btnOpenVid">打开目录</button>
+            </div></div>
+          <div class="field"><label class="field__lb">格式</label>
+            <div class="field__ct"><select class="in" data-key="recordFormat">
+              <option value="auto">按扩展名自动</option><option value="mkv">mkv</option><option value="mp4">mp4</option>
+            </select></div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__hd"><h2>摄像头 / 虚拟显示</h2><span class="hint">一般用不到</span></div>
+        <div class="card__bd tight">
+          <div class="field"><label class="field__lb">视频源</label>
+            <div class="field__ct"><select class="in" data-key="videoSource">
+              <option value="display">屏幕</option><option value="camera">摄像头</option>
+            </select></div></div>
+          <div class="field"><label class="field__lb">摄像头 ID</label>
+            <div class="field__ct"><input class="in in--num" data-key="cameraId"><button class="btn btn--secondary" data-list="cameras">查询</button></div></div>
+          <div class="field"><label class="field__lb">虚拟显示<small>格式 宽x高/DPI</small></label>
+            <div class="field__ct"><input class="in" data-key="newDisplaySize" placeholder="如 1920x1080/320"></div></div>
+          <div class="field"><label class="field__lb">启动应用包名</label>
+            <div class="field__ct"><input class="in" data-key="startApp" placeholder="如 com.android.chrome">
+              <button class="btn btn--secondary" data-list="apps">查询</button></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 设备工具 ==================== -->
+    <section class="view" id="view-tools">
+      <div class="card">
+        <div class="card__hd"><h2>物理按键</h2><span class="hint">不投屏也能用</span></div>
+        <div class="card__bd">
+          <div class="keys">
+            <button class="btn" data-keyevent="4">返回</button>
+            <button class="btn" data-keyevent="3">主屏</button>
+            <button class="btn" data-keyevent="187">最近任务</button>
+            <button class="btn" data-keyevent="26">电源</button>
+            <button class="btn" data-keyevent="24">音量 +</button>
+            <button class="btn" data-keyevent="25">音量 −</button>
+            <button class="btn" data-keyevent="82">菜单</button>
+            <button class="btn" data-keyevent="223">熄屏</button>
+            <button class="btn" data-keyevent="224">亮屏</button>
+            <button class="btn" data-keyevent="164">静音</button>
+            <button class="btn" data-keyevent="66">确定</button>
+            <button class="btn" data-keyevent="67">删除</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__hd"><h2>截图与文件</h2></div>
+        <div class="card__bd">
+          <div class="row">
+            <button class="btn btn--primary" data-adb="screenshot">截屏到电脑</button>
+            <button class="btn btn--secondary" id="btnOpenShot">打开截图目录</button>
+            <button class="btn btn--secondary" data-list="displays">列出显示器</button>
+            <button class="btn btn--secondary" data-list="encoders">列出编码器</button>
+          </div>
+          <div class="drop" id="drop" style="margin-top:12px">
+            把 APK 拖到这里自动安装；其他文件推送到手机 /sdcard/Download/（也可点击选择）
+          </div>
+          <input type="file" id="fileSel" hidden multiple>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__hd"><h2>发送内容</h2></div>
+        <div class="card__bd tight">
+          <div class="field"><label class="field__lb">输入文本</label>
+            <div class="field__ct"><input class="in" id="inText" placeholder="输入后回车发送">
+              <button class="btn btn--secondary" id="btnText">发送</button></div></div>
+          <div class="field"><label class="field__lb">打开网址</label>
+            <div class="field__ct"><input class="in" id="inUrl" placeholder="https://...">
+              <button class="btn btn--secondary" id="btnUrl">打开</button></div></div>
+          <div class="field"><label class="field__lb">启动应用</label>
+            <div class="field__ct"><input class="in" id="inApp" placeholder="包名，如 com.android.chrome">
+              <button class="btn btn--secondary" id="btnApp">启动</button></div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__hd"><h2>执行 shell</h2><span class="hint">以手机 shell 权限运行</span></div>
+        <div class="card__bd">
+          <textarea class="in" id="inShell" rows="3" placeholder="如：pm list packages"></textarea>
+          <div class="row" style="margin-top:8px">
+            <button class="btn btn--primary" id="btnShell">执行</button>
+            <button class="btn btn--secondary" id="btnShellClear">清空输出</button>
+          </div>
+          <pre class="out" id="shellOut" style="margin-top:8px;max-height:220px"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 日志 ==================== -->
+    <section class="view" id="view-log">
+      <div class="card">
+        <div class="card__hd"><h2>scrcpy 输出</h2>
+          <span class="spacer"></span>
+          <label class="cb"><input type="checkbox" id="autoLog" checked> 自动刷新</label>
+          <button class="btn btn--secondary" id="btnLogRefresh">刷新</button>
+        </div>
+        <div class="card__bd"><pre class="out" id="scrcpyLog" style="max-height:340px"></pre></div>
+      </div>
+      <div class="card">
+        <div class="card__hd"><h2>操作记录</h2><span class="hint">控制台执行过的命令</span></div>
+        <div class="card__bd"><pre class="out" id="consoleLog" style="max-height:280px"></pre></div>
+      </div>
+      <div class="card">
+        <div class="card__hd"><h2>排错</h2></div>
+        <div class="card__bd tight">
+          <div class="field"><label class="field__lb">日志级别</label>
+            <div class="field__ct"><select class="in" data-key="verbosity">
+              <option value="info">info（常规）</option><option value="debug">debug（详细）</option>
+              <option value="verbose">verbose（最详细）</option><option value="warn">warn</option><option value="error">error</option>
+            </select><span class="sec__d" style="margin:0">启动失败时改 debug 再看上面输出</span></div></div>
+          <div class="field"><label class="field__lb">adb 端口范围</label>
+            <div class="field__ct"><input class="in in--num" data-key="port" placeholder="27183:27199"></div></div>
+          <div class="chips" style="padding:8px 0">
+            <label class="cb"><input type="checkbox" data-key="forceAdbForward"> 强制 adb forward</label>
+            <label class="cb"><input type="checkbox" data-key="killAdbOnClose"> 关闭时结束 adb</label>
+            <label class="cb"><input type="checkbox" data-key="noCleanup"> 不清理设备残留</label>
+            <label class="cb"><input type="checkbox" data-key="pauseOnExit"> 出错时暂停窗口</label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+  </main>
+</div>
+
+<footer class="cmdbar" id="cmdbar">
+  <div class="cmdbar__hd" id="cmdbarHd">
+    <span class="t">命令预览</span>
+    <code id="cmdShort"></code>
+    <button class="btn btn--ghost icobtn" id="btnCopy" title="复制命令">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5.5" y="5.5" width="8" height="8" rx="1"/><path d="M10.5 5.5v-3h-8v8h3"/></svg>
+    </button>
+    <svg class="chev" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6l4 4 4-4"/></svg>
+  </div>
+  <div class="cmdbar__bd"><pre class="out" id="cmdFull" style="max-height:140px"></pre></div>
+</footer>
+
+<div id="toasts"></div>
+
+<script>
+// ============================================================ 默认设置
+var DEFAULTS = {
+  serial:"auto", selectMode:"auto", tcpipMode:"off", tcpipAddr:"",
+  video:true, maxSize:"", videoBitRate:"", maxFps:"", videoCodec:"default",
+  videoEncoder:"", videoBuffer:"", crop:"", captureOrientation:"0", printFps:false, noVideo:false,
+  audio:true, audioSource:"output", audioBitRate:"", audioBuffer:"", audioCodec:"default",
+  audioDup:false, requireAudio:false, audioPlayback:true,
+  windowWidth:"", windowHeight:"", windowX:"", windowY:"", windowTitle:"",
+  borderless:false, alwaysOnTop:false, fullscreen:false, disableScreensaver:false,
+  renderDriver:"default", renderFit:"default",
+  control:true, mouseMode:"default", keyboardMode:"default", gamepadMode:"default",
+  shortcutMod:"default", clipboardSync:true, showTouches:false, stayAwake:false,
+  turnScreenOff:false, noMouseHover:false, otg:false,
+  record:false, recordFile:"", recordFormat:"auto",
+  videoSource:"display", cameraId:"", newDisplaySize:"", startApp:"",
+  verbosity:"info", port:"", forceAdbForward:false, killAdbOnClose:false,
+  noCleanup:false, pauseOnExit:false
+};
+var SCENARIOS = {
+  std:    {},
+  smooth: {maxSize:"1024", videoBitRate:"2M", maxFps:"30", videoBuffer:"50", audioBuffer:"50"},
+  hq:     {maxSize:"1920", videoBitRate:"8M", maxFps:"60"},
+  game:   {maxSize:"1280", videoBitRate:"8M", maxFps:"60", mouseMode:"uhid", keyboardMode:"uhid", stayAwake:true, videoBuffer:"0"}
+};
+
+var S = Object.assign({}, DEFAULTS);
+var INFO = {};
+var curMode = "std";
+
+// ============================================================ 工具
+function $(s){ return document.querySelector(s); }
+function $$(s){ return Array.prototype.slice.call(document.querySelectorAll(s)); }
+function toast(msg, kind){
+  var d = document.createElement("div");
+  d.className = "toast" + (kind ? " " + kind : "");
+  d.textContent = msg;
+  $("#toasts").appendChild(d);
+  setTimeout(function(){ d.remove(); }, 3200);
+}
+function api(path, body){
+  var opt = body ? {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)} : {};
+  return fetch(path, opt).then(function(r){ return r.json(); });
+}
+function esc(s){
+  return String(s).replace(/[&<>]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c]; });
+}
+
+// ============================================================ 设置读写
+function collect(){
+  var o = {};
+  $$("[data-key]").forEach(function(el){
+    var k = el.dataset.key;
+    if(!(k in DEFAULTS)) return;
+    if(el.type === "checkbox"){
+      // 同一参数可能在两处出现（快捷开关 + 高级设置），任一勾选即生效
+      o[k] = (k in o ? (o[k] || el.checked) : el.checked);
+    }else{
+      var v = el.value;
+      if(!(k in o) || !o[k]) o[k] = v;
+    }
+  });
+  // 已选中设备时以选中设备为准，避免同时传 --serial 和 --tcpip 导致 scrcpy 报错
+  var hasSel = S.serial && S.serial !== "auto";
+  o.tcpipMode = (o.tcpipAddr && !hasSel) ? "addr" : "off";
+  o.serial = S.serial;
+  o.selectMode = S.selectMode;
+  return o;
+}
+function apply(){
+  $$("[data-key]").forEach(function(el){
+    var k = el.dataset.key;
+    if(!(k in DEFAULTS)) return;
+    if(document.activeElement === el) return; // 不打断正在输入的元素
+    var v = S[k];
+    if(el.type === "checkbox") el.checked = !!v;
+    else el.value = (v === undefined || v === null) ? "" : v;
+  });
+  syncModeChip();
+}
+var saveTimer = null;
+function onChanged(){
+  S = Object.assign(S, collect());
+  apply(); // 同步同名控件的其它副本
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(function(){ api("/api/settings", S); }, 500);
+  refreshCmd();
+}
+function syncModeChip(){
+  $$("#modeBox .mode").forEach(function(b){ b.classList.toggle("is-active", b.dataset.mode === curMode); });
+}
+var cmdTimer = null;
+function refreshCmd(){
+  clearTimeout(cmdTimer);
+  cmdTimer = setTimeout(function(){
+    api("/api/build", S).then(function(r){
+      var c = (r && r.cmd) || "";
+      $("#cmdShort").textContent = c;
+      $("#cmdFull").textContent = c;
+    });
+  }, 250);
+}
+
+// ============================================================ 设备 / 状态
+function refreshDevices(){
+  return api("/api/devices").then(function(r){
+    var list = (r && r.devices) || [];
+    var box = $("#devList");
+    box.innerHTML = "";
+    list.forEach(function(d){
+      var b = document.createElement("div");
+      b.className = "dev" + (S.serial === d.serial ? " is-active" : "");
+      b.innerHTML = '<span class="dev__k">' + esc(d.serial) + '</span>' +
+                    '<span class="dev__m">' + esc(d.model || "未知型号") + '</span>' +
+                    '<span class="dev__s">' + esc(d.state) + '</span>';
+      b.onclick = function(){
+        S.serial = d.serial; S.selectMode = "auto";
+        refreshDevices(); refreshCmd();
+      };
+      box.appendChild(b);
+    });
+    $("#devEmpty").hidden = list.length > 0;
+  });
+}
+function refreshStatus(){
+  return api("/api/status").then(function(r){
+    var on = !!(r && r.running);
+    $("#runDot").classList.toggle("on", on);
+    $("#runTxt").textContent = on ? "投屏运行中" : "未运行";
+    $("#btnStart").textContent = on ? "重新启动" : "启动投屏";
+    $("#btnStop").disabled = !on;
+    $("#scrcpyLog").textContent = (r && r.log) || "";
+    $("#consoleLog").textContent = (r && r.console) || "";
+  });
+}
+
+// ============================================================ 交互绑定
+$$(".nav").forEach(function(b){
+  b.onclick = function(){
+    $$(".nav").forEach(function(x){ x.classList.remove("is-active"); });
+    b.classList.add("is-active");
+    $$(".view").forEach(function(v){ v.classList.remove("is-active"); });
+    $("#view-" + b.dataset.view).classList.add("is-active");
+  };
+});
+
+function start(){
+  S = Object.assign(S, collect());
+  api("/api/start", S).then(function(r){
+    toast(r.msg || (r.ok ? "已启动" : "启动失败"), r.ok ? "ok" : "err");
+    refreshStatus();
+  });
+}
+$("#btnRefresh").onclick = function(){ refreshDevices(); toast("已刷新设备列表"); };
+$("#btnStart").onclick = start;
+$("#btnStart2").onclick = start;
+$("#btnStop").onclick = function(){
+  api("/api/stop", {}).then(function(r){
+    toast(r.msg || "已停止", r.ok ? "ok" : "err"); refreshStatus();
+  });
+};
+
+$$("#modeBox .mode").forEach(function(b){
+  b.onclick = function(){
+    curMode = b.dataset.mode;
+    var sc = SCENARIOS[curMode] || {};
+    if(curMode === "std"){
+      Object.keys(DEFAULTS).forEach(function(k){
+        if(k !== "serial" && k !== "selectMode" && k !== "tcpipAddr") S[k] = DEFAULTS[k];
+      });
+    }
+    Object.keys(sc).forEach(function(k){ S[k] = sc[k]; });
+    apply();
+    api("/api/settings", S);
+    refreshCmd();
+    syncModeChip();
+  };
+});
+
+$$("[data-keyevent]").forEach(function(b){
+  b.onclick = function(){
+    api("/api/adb", {action:"keyevent", param:b.dataset.keyevent, serial:S.serial}).then(function(r){
+      toast(r.ok ? "已发送" : (r.msg || "失败"), r.ok ? "ok" : "err");
+    });
+  };
+});
+$$("[data-adb]").forEach(function(b){
+  b.onclick = function(){
+    api("/api/adb", {action:b.dataset.adb, param:b.dataset.param || "", serial:S.serial}).then(function(r){
+      if(r.ip) $("#tcpipAddr").value = r.ip + ":5555";
+      toast(r.ok ? (r.msg || "完成") : (r.msg || "失败"), r.ok ? "ok" : "err");
+      if(b.dataset.adb === "restart-adb") refreshDevices();
+    });
+  };
+});
+$("#btnPair").onclick = function(){
+  var a = $("#pairAddr").value.trim();
+  var c = $("#pairCode").value.trim();
+  if(!a || !c){ toast("请填写配对地址和配对码", "err"); return; }
+  api("/api/adb", {action:"pair", param:a, code:c, serial:null}).then(function(r){
+    toast(r.ok ? "配对成功，再抄手机上的连接端口" : (r.msg || "配对失败"), r.ok ? "ok" : "err");
+    refreshDevices();
+  });
+};
+$("#btnConnect").onclick = function(){
+  var addr = $("#tcpipAddr").value.trim();
+  if(!addr){ toast("请先填写 地址:端口", "err"); return; }
+  api("/api/adb", {action:"connect", param:addr, serial:null}).then(function(r){
+    toast(r.msg || (r.ok ? "已连接" : "连接失败"), r.ok ? "ok" : "err");
+    refreshDevices();
+  });
+};
+$$("[data-list]").forEach(function(b){
+  b.onclick = function(){
+    api("/api/adb", {action:"scrcpy-list", param:b.dataset.list, serial:S.serial}).then(function(r){
+      toast(r.ok ? "结果已写入「操作记录」" : (r.msg || "查询失败"), r.ok ? "ok" : "err");
+      refreshStatus();
+    });
+  };
+});
+
+function sendText(){
+  var t = $("#inText").value.trim();
+  if(!t) return;
+  api("/api/adb", {action:"text", param:t, serial:S.serial}).then(function(r){
+    toast(r.ok ? "已输入" : (r.msg || "失败"), r.ok ? "ok" : "err");
+  });
+}
+$("#btnText").onclick = sendText;
+$("#inText").onkeydown = function(e){ if(e.key === "Enter") sendText(); };
+$("#btnUrl").onclick = function(){
+  var u = $("#inUrl").value.trim(); if(!u) return;
+  api("/api/adb", {action:"url", param:u, serial:S.serial}).then(function(r){
+    toast(r.ok ? "已打开" : (r.msg || "失败"), r.ok ? "ok" : "err");
+  });
+};
+$("#btnApp").onclick = function(){
+  var p = $("#inApp").value.trim(); if(!p) return;
+  api("/api/adb", {action:"app", param:p, serial:S.serial}).then(function(r){
+    toast(r.ok ? "已启动" : (r.msg || "失败"), r.ok ? "ok" : "err");
+  });
+};
+$("#btnShell").onclick = function(){
+  var c = $("#inShell").value.trim(); if(!c) return;
+  api("/api/adb", {action:"shell", param:c, serial:S.serial}).then(function(r){
+    $("#shellOut").textContent = r.msg || "";
+    toast(r.ok ? "执行完成" : "命令返回非零", r.ok ? "ok" : "err");
+  });
+};
+$("#btnShellClear").onclick = function(){ $("#shellOut").textContent = ""; };
+
+$("#btnGenRec").onclick = function(){
+  var d = new Date();
+  function p(n){ return String(n).padStart(2, "0"); }
+  var name = "scrcpy_" + d.getFullYear() + p(d.getMonth()+1) + p(d.getDate()) + "_" + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + ".mkv";
+  var dir = INFO.videoDir || "";
+  var v = dir ? dir + "\\" + name : name;
+  $('[data-key="recordFile"]').value = v;
+  S.recordFile = v;
+  api("/api/settings", S);
+  refreshCmd();
+  toast("已生成路径");
+};
+$("#btnOpenVid").onclick = function(){ api("/api/open", {path:INFO.videoDir || ""}); };
+$("#btnOpenShot").onclick = function(){ api("/api/open", {path:INFO.shotDir || ""}); };
+
+// 拖放：APK 安装 / 其他文件推送
+var drop = $("#drop");
+drop.onclick = function(){ $("#fileSel").click(); };
+$("#fileSel").onchange = function(e){ handleFiles(e.target.files); };
+["dragenter","dragover"].forEach(function(ev){
+  drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add("is-over"); });
+});
+["dragleave","drop"].forEach(function(ev){
+  drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove("is-over"); });
+});
+drop.addEventListener("drop", function(e){ handleFiles(e.dataTransfer.files); });
+function handleFiles(files){
+  Array.prototype.forEach.call(files, function(f){
+    fetch("/api/upload?name=" + encodeURIComponent(f.name), {method:"POST", body:f})
+      .then(function(r){ return r.json(); })
+      .then(function(u){
+        if(!u.ok){ toast("上传失败", "err"); return; }
+        var isApk = /\.apk$/i.test(f.name);
+        return api("/api/adb", {action:isApk ? "install" : "push", param:u.path, serial:S.serial})
+          .then(function(r){
+            toast((isApk ? "安装 " : "推送 ") + f.name + "：" + (r.ok ? "完成" : "失败"), r.ok ? "ok" : "err");
+          });
+      });
+  });
+}
+
+// 命令条
+$("#cmdbarHd").onclick = function(e){
+  if(!e.target.closest("#btnCopy")) $("#cmdbar").classList.toggle("is-open");
+};
+$("#btnCopy").onclick = function(e){
+  e.stopPropagation();
+  var txt = $("#cmdFull").textContent;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){ toast("命令已复制"); },
+      function(){ toast("复制失败", "err"); });
+  } else { toast("复制失败", "err"); }
+};
+
+// 日志轮询
+$("#btnLogRefresh").onclick = refreshStatus;
+setInterval(function(){ if($("#autoLog").checked) refreshStatus(); }, 1500);
+setInterval(refreshDevices, 6000);
+
+// 主题
+function setTheme(t){
+  document.documentElement.dataset.theme = t;
+  $("#themeTxt").textContent = t === "dark" ? "浅色" : "深色";
+  try{ localStorage.setItem("scrcpy-theme", t); }catch(e){}
+}
+$("#btnTheme").onclick = function(){
+  setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+};
+
+// 预设
+function loadPresets(){
+  return api("/api/presets").then(function(p){
+    var sel = $("#presetSel");
+    sel.innerHTML = '<option value="">预设…</option>';
+    Object.keys(p || {}).forEach(function(k){
+      var o = document.createElement("option");
+      o.value = k; o.textContent = k; sel.appendChild(o);
+    });
+  });
+}
+$("#presetSel").onchange = function(){
+  var name = $("#presetSel").value; if(!name) return;
+  api("/api/presets").then(function(p){
+    if(p[name]){
+      S = Object.assign({}, DEFAULTS, p[name]);
+      apply(); api("/api/settings", S); refreshCmd();
+      toast("已载入「" + name + "」", "ok");
+    }
+  });
+};
+$("#btnPresetSave").onclick = function(){
+  S = Object.assign(S, collect());
+  var name = prompt("预设名称：", "我的配置");
+  if(!name) return;
+  api("/api/presets/save", {name:name, settings:S}).then(function(){
+    loadPresets().then(function(){ $("#presetSel").value = name; });
+    toast("已保存预设", "ok");
+  });
+};
+
+// ============================================================ 初始化
+(function init(){
+  var t = "light";
+  try{ t = localStorage.getItem("scrcpy-theme") || "light"; }catch(e){}
+  setTheme(t);
+  api("/api/info").then(function(info){
+    INFO = info;
+    $("#verTag").textContent = info.hasScrcpy ? "" : "（未找到 scrcpy.exe）";
+  });
+  api("/api/settings").then(function(saved){
+    S = Object.assign({}, DEFAULTS, saved || {});
+    // 若历史设置含场景特征，标记对应模式
+    if(S.maxSize === "1024" && S.videoBitRate === "2M") curMode = "smooth";
+    else if(S.maxSize === "1920" && S.videoBitRate === "8M") curMode = "hq";
+    else if(S.mouseMode === "uhid") curMode = "game";
+    apply();
+    document.addEventListener("input", function(e){ if(e.target.dataset && e.target.dataset.key) onChanged(); });
+    document.addEventListener("change", function(e){ if(e.target.dataset && e.target.dataset.key) onChanged(); });
+    loadPresets();
+    refreshDevices();
+    refreshStatus();
+    refreshCmd();
+  });
+})();
+</script>
+</body>
+</html>
