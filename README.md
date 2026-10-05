@@ -26,7 +26,7 @@ scrcpy 本身是纯命令行工具，参数有几十个。本项目提供：
 
 ## 下载使用
 
-到 [Releases](../../releases) 下载 `scrcpy控制台.exe`（约 33 MB，内置 scrcpy 4.1 + adb），双击即可。
+到 [Releases](../../releases) 下载 `scrcpy-console.exe`（约 33 MB，内置 scrcpy 4.1 + adb），双击即可。
 
 **系统要求**
 
