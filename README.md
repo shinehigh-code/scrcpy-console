@@ -79,6 +79,18 @@ tools/build_scrcpy_app.py  一键打包脚本
 tools/make_scrcpy_icon.py  图标生成脚本
 ```
 
+## 更新记录
+
+### v1.0.1
+
+- 修复关闭程序时弹出 `Failed to remove temporary directory` 警告：改用 Windows Job Object
+  管理子进程，主进程退出后内核自动回收 scrcpy 与 adb、释放临时目录文件锁；退出时同时优雅
+  执行 `adb kill-server`，启动时清理上次残留。
+
+### v1.0.0
+
+- 首个公开版本。
+
 ## 安全与隐私
 
 - 控制台只监听 `127.0.0.1`，不对局域网/外网开放，不上传任何数据
