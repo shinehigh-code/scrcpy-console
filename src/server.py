@@ -83,6 +83,74 @@ def si_hidden():
     return s
 
 
+# ------------------------------------------------- Windows Job Object 兜底
+# 把本程序启动的所有子进程（scrcpy / adb server）放进一个 Job，并设置
+# KILL_ON_JOB_CLOSE：主进程无论以何种方式退出（正常关窗、崩溃、被杀），
+# 内核都会自动终止 Job 里的全部子进程并释放对 _MEI 临时目录的文件锁，
+# PyInstaller 退出时就能正常清理临时目录，不再弹
+# "Failed to remove temporary directory" 警告。
+JOB_HANDLE = None
+
+
+def _create_kill_on_close_job():
+    import ctypes
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [(n, ctypes.c_ulonglong) for n in (
+            "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+            "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_longlong),
+            ("PerJobUserTimeLimit", ctypes.c_longlong),
+            ("LimitFlags", ctypes.c_uint32),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", ctypes.c_uint32),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", ctypes.c_uint32),
+            ("SchedulingClass", ctypes.c_uint32),
+        ]
+
+    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    job = k32.CreateJobObjectW(None, None)
+    if not job:
+        return None
+    info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    info.BasicLimitInformation.LimitFlags = 0x2000          # KILL_ON_JOB_CLOSE
+    if not k32.SetInformationJobObject(
+            job, 9, ctypes.byref(info),                     # JobObjectExtendedLimitInformation
+            ctypes.sizeof(info)):
+        k32.CloseHandle(job)
+        return None
+    return job
+
+
+def _assign_to_job(job, proc):
+    if not job:
+        return
+    import ctypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    try:
+        k32.AssignProcessToJobObject(job, int(proc._handle))
+    except Exception:
+        pass
+
+
+JOB_HANDLE = _create_kill_on_close_job()
+
+
 # ---------------------------------------------------------------- 进程管理
 class Runner:
     def __init__(self):
@@ -118,6 +186,7 @@ class Runner:
                     startupinfo=si_hidden(),
                     creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
                 )
+                _assign_to_job(JOB_HANDLE, self.proc)
             except Exception as e:
                 f.close()
                 return False, "启动失败：%s" % e
@@ -198,16 +267,21 @@ def adb(args, serial=None, timeout=25):
         cmd += ["-s", serial]
     cmd += [str(a) for a in args]
     try:
-        p = subprocess.run(
-            cmd, cwd=str(SCRCPY_DIR), capture_output=True,
-            timeout=timeout, startupinfo=si_hidden(),
-            creationflags=CREATE_NO_WINDOW,
+        p = subprocess.Popen(
+            cmd, cwd=str(SCRCPY_DIR), stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+            startupinfo=si_hidden(), creationflags=CREATE_NO_WINDOW,
         )
-        out = (p.stdout or b"").decode("utf-8", "replace")
-        err = (p.stderr or b"").decode("utf-8", "replace")
+        _assign_to_job(JOB_HANDLE, p)       # adb fork 出的 server 同样进 Job
+        try:
+            out, err = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            out, err = p.communicate()
+            return 1, "timeout"
+        out = out.decode("utf-8", "replace") if isinstance(out, bytes) else str(out or "")
+        err = err.decode("utf-8", "replace") if isinstance(err, bytes) else str(err or "")
         return p.returncode, (out + err).strip()
-    except subprocess.TimeoutExpired:
-        return -1, "命令超时（%ss）" % timeout
     except Exception as e:
         return -1, "执行失败：%s" % e
 
@@ -604,10 +678,16 @@ def do_adb_action(data):
         cmd += ["exec-out", "screencap", "-p"]
         try:
             with open(path, "wb") as f:
-                p = subprocess.run(cmd, cwd=str(SCRCPY_DIR), stdout=f,
-                                   stderr=subprocess.PIPE, timeout=30,
-                                   startupinfo=si_hidden(),
-                                   creationflags=CREATE_NO_WINDOW)
+                cp = subprocess.Popen(cmd, cwd=str(SCRCPY_DIR), stdout=f,
+                                      stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                                      startupinfo=si_hidden(),
+                                      creationflags=CREATE_NO_WINDOW)
+                _assign_to_job(JOB_HANDLE, cp)
+                try:
+                    _, cerr = cp.communicate(timeout=30)
+                except subprocess.TimeoutExpired:
+                    cp.kill()
+                    cp.communicate()
             ok = path.exists() and path.stat().st_size > 0
             return {"ok": ok, "msg": str(path) if ok else "截图失败", "path": str(path)}
         except Exception as e:
