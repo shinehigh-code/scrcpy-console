@@ -11,6 +11,13 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 
+def _si_hidden():
+    s = subprocess.STARTUPINFO()
+    s.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    s.wShowWindow = 0
+    return s
+
+
 def resource(name):
     """定位随包资源：开发态在脚本目录，打包后在 _MEIPASS。"""
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
@@ -18,6 +25,66 @@ def resource(name):
         if p.exists():
             return p
     return Path(__file__).resolve().parent / name
+
+
+def cleanup_children(backend):
+    """退出前收干净由本程序启动的子进程。
+
+    adb server 是常驻进程，从 PyInstaller 的 _MEI 临时目录里运行并锁住
+    adb.exe 的映像文件；不杀掉它，PyInstaller 退出清理 _MEI 目录时会
+    弹 "Failed to remove temporary directory" 警告。
+    """
+    # 1. 停掉正在运行的 scrcpy
+    try:
+        backend.RUNNER.stop()
+    except Exception:
+        pass
+    # 2. 优雅关闭 adb server
+    try:
+        adb = Path(backend.ADB)
+        if adb.exists():
+            subprocess.run(
+                [str(adb), "kill-server"], timeout=8,
+                capture_output=True, startupinfo=_si_hidden(),
+                creationflags=0x08000000,
+            )
+    except Exception:
+        pass
+    # 3. 兜底：强制结束仍在 _MEI 临时目录里运行的进程（只匹配本实例
+    #    的临时目录，不影响系统里其他来源的 adb，比如模拟器自带的）
+    mei = getattr(sys, "_MEIPASS", None)
+    if mei:
+        safe = str(mei).replace("'", "''")
+        ps = ("Get-CimInstance Win32_Process | "
+              "Where-Object { $_.ExecutablePath -like '%s\\*' } | "
+              "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+              % safe)
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps],
+                timeout=15, capture_output=True,
+                startupinfo=_si_hidden(), creationflags=0x08000000,
+            )
+        except Exception:
+            pass
+
+
+def cleanup_stale_mei():
+    """启动时顺手清理上次异常退出残留的 _MEI* 空壳目录（可失败，静默）。"""
+    if not getattr(sys, "frozen", False):
+        return
+    tmp = Path.home() / "AppData" / "Local" / "Temp"
+    meipass = getattr(sys, "_MEIPASS", "")
+    try:
+        for d in tmp.glob("_MEI*"):
+            if d.is_dir() and str(d) != meipass:
+                subprocess.run(
+                    ["cmd", "/c", "rd", "/s", "/q", str(d)],
+                    timeout=10, capture_output=True,
+                    startupinfo=_si_hidden(), creationflags=0x08000000,
+                )
+    except Exception:
+        pass
 
 
 def start_backend():
@@ -61,6 +128,7 @@ def main():
         storage.mkdir(parents=True, exist_ok=True)
     except OSError:
         pass
+    cleanup_stale_mei()
 
     try:
         import webview
@@ -86,7 +154,7 @@ def main():
             pass
 
     srv.shutdown()
-    backend.RUNNER.stop()
+    cleanup_children(backend)
     return 0
 
 
